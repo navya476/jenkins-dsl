@@ -1,0 +1,59 @@
+folder(CUSTOMER)
+freeStyleJob(CUSTOMER+'/' + 'VPC-Provision') {
+	scm {
+		git {
+			remote {
+				url('https://github.com/navya476/terraform-test.git')
+			}
+			branch('master')
+		}
+	}
+	steps {
+		copyArtifacts('VPC-Seed') {
+			includePatterns('terraform.tfvars.json')
+			flatten(true)
+			buildSelector {
+			latestSuccessful(true)
+			}
+		}
+		shell('#!/bin/bash -eux \n# Only configure remote state if not already configured. \n#cd terraform-test \nregion=`jq -r .aws_region terraform.tfvars.json` \nbucket=otturunavyateja  \nkey=`jq -r .key terraform.tfvars.json` \nif [ -d .terraform ] \nthen true \nelse \nterraform remote config -backend=s3 -backend-config="region=${region}" -backend-config="bucket=${bucket}" -backend-config="key=${key}" \nfi')
+		shell('#!/bin/bash \n#cd terraform-test \nregion=`jq -r .aws_region terraform.tfvars.json` \nbucket=otturunavyateja \nkey=`jq -r .key terraform.tfvars.json` \nterraform remote pull \nterraform get -update \nterraform plan -out tfplan.out -var "bucket=${bucket}" -var "key=${key}" \nterraform apply -var "bucket=${bucket}" -var "key=${key}" \ncp .terraform/terraform.tfstate vpc.outputs \nterraform remote push')
+	}
+	publishers {
+		archiveArtifacts {
+			pattern('vpc.outputs,terraform.tfvars.json')
+		}
+		wrappers {
+			preBuildCleanup()
+		}
+	}
+}
+freeStyleJob(CUSTOMER+'/' + 'AWS-Config-Backup') {
+	scm {
+		git {
+			remote {
+				url('https://github.com/navya476/terraform-test.git')
+			}
+			branch('master')
+		}
+	}
+	triggers
+	{
+  		cron("H H(0-1) * * *")
+	}
+	steps {
+		copyArtifacts(CUSTOMER+'/' + 'VPC-Provision') {
+			includePatterns('terraform.tfvars.json')
+			flatten(true)
+			buildSelector {
+			latestSuccessful(true)
+			}
+		}
+		shell('#!/bin/bash \n#cd terraform-test \nregion=`jq -r .aws_region terraform.tfvars.json` \nbucket=otturunavyateja \nkey=`jq -r .key terraform.tfvars.json` \nterraform remote config -backend=s3 -backend-config="region=${region}" -backend-config="bucket=${bucket}" -backend-config="key=${key}" \nterraform remote pull \nterraform refresh \nterraform remote push')
+	}
+	publishers {
+		wrappers {
+			preBuildCleanup()
+		}
+	}
+}
